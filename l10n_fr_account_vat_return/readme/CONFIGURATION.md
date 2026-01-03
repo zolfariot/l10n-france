@@ -115,3 +115,22 @@ If you need to create the destination accounts:
 2. Create new accounts with appropriate codes (701200, 701400, etc.)
 3. Set the **Account Type** to the same as the source account (Income)
 4. Configure the account mappings as described above
+
+## VAT Credit Account Configuration
+
+### Multiple Accounts Starting with "44567"
+
+The French chart of accounts includes two accounts that start with "44567":
+- **445670** - Crédit de TVA à reporter (VAT credit to carry forward) 
+- **445671** - TVA réclamée à l'administration (VAT claimed from administration)
+
+The VAT return module uses account **445670** specifically for:
+- Box 22 (HD): Report du crédit (Credit carry forward from previous return)
+- Box 27 (JC): Crédit à reporter (Credit to carry forward to next return)
+
+If you see an error about multiple accounts starting with "44567", ensure that:
+1. Account 445670 exists and is not deprecated
+2. The VAT box configuration uses the complete account code "445670" (not just "44567")
+3. The account has the correct type (Client/Current Assets)
+
+**Note**: Starting from version 18.0.2.0.0, the module data has been updated to use the complete account code "445670" instead of the prefix "44567" to avoid ambiguity.
