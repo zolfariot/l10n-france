@@ -1557,6 +1557,23 @@ class L10nFrAccountVatReturn(models.Model):
         return vat_account2type
 
     def _generate_operation_untaxed(self, speedy):
+        """
+        Generate VAT return lines for untaxed operations (operations without VAT).
+        
+        This function is REQUIRED and independent of tax exigibility changes.
+        It handles operations that must be reported on CA3 but have no VAT:
+        - Intra-EU B2B sales (livraisons intracommunautaires)
+        - Intra-EU B2C sales
+        - Extra-EU exports (exportations)
+        - France exempt operations (opérations exonérées)
+        
+        The function uses fiscal position account mappings to identify which
+        revenue accounts correspond to each type of operation. If you get an error
+        about "table de correspondance des comptes vide" (empty account mapping table),
+        you need to configure account mappings on the fiscal position.
+        
+        See readme/CONFIGURATION.md for detailed configuration instructions.
+        """
         self.ensure_one()
         fp_types = ["intracom_b2b", "intracom_b2c", "extracom", "france_exo"]
         fpositions2box_meaning_id = {}
@@ -1594,8 +1611,17 @@ class L10nFrAccountVatReturn(models.Model):
                         )
                     else:
                         raise UserError(
-                            _("Missing account mapping on fiscal position '%s'.")
-                            % fposition.display_name
+                            _(
+                                "Missing account mapping on fiscal position '%(fp)s'.\n\n"
+                                "To fix this error:\n"
+                                "1. Go to Accounting > Configuration > Fiscal Positions\n"
+                                "2. Open fiscal position '%(fp)s'\n"
+                                "3. In the 'Account Mapping' tab, add mappings for revenue accounts\n"
+                                "   (e.g., 701100 → 701200 for Intra-EU B2B)\n\n"
+                                "See the module documentation (readme/CONFIGURATION.md) for "
+                                "detailed instructions on configuring fiscal position account mappings.",
+                                fp=fposition.display_name,
+                            )
                         )
                 for mapping in revenue_account_mappings:
                     if box_meaning_id not in box_meaning_id2accounts:
