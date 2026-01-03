@@ -5,37 +5,29 @@
   License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 -->
 <odoo>
+    <!-- Deprecated wizard - kept for compatibility but shows error message -->
     <record id="l10n_fr_vat_exigibility_update_form" model="ir.ui.view">
         <field name="model">l10n.fr.vat.exigibility.update</field>
         <field name="arch" type="xml">
             <form>
-                <group name="main">
-                    <field name="company_id" />
-                    <field name="current_fr_vat_exigibility" />
-                    <field name="new_fr_vat_exigibility" />
-                    <field name="update_type" widget="radio" />
-                    <field
-                        name="update_date"
-                        invisible="update_type != 'date'"
-                        required="update_type == 'date'"
-                        options="{'datepicker': {'warn_future': true}}"
-                    />
-                </group>
+                <div class="alert alert-warning" role="alert">
+                    <p><strong>This wizard is deprecated.</strong></p>
+                    <p>VAT exigibility should now be configured directly on individual taxes using the native Odoo functionality:</p>
+                    <ol>
+                        <li>Go to Accounting > Configuration > Taxes</li>
+                        <li>Edit each tax individually</li>
+                        <li>Set the 'Tax Exigibility' field to 'Based on Invoice' or 'Based on Payment'</li>
+                    </ol>
+                </div>
                 <footer>
-                    <button
-                        type="object"
-                        string="Update"
-                        name="run"
-                        class="btn-primary"
-                    />
-                    <button special="cancel" string="Cancel" />
+                    <button special="cancel" string="Close" class="btn-primary" />
                 </footer>
             </form>
         </field>
     </record>
 
     <record id="l10n_fr_vat_exigibility_update_action" model="ir.actions.act_window">
-        <field name="name">Update Company VAT Exigibility</field>
+        <field name="name">Update Company VAT Exigibility (Deprecated)</field>
         <field name="res_model">l10n.fr.vat.exigibility.update</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>

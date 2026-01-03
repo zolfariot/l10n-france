@@ -24,11 +24,12 @@ class TestFrAccountVatReturn(TransactionCase):
         cls.before_start_date = cls.start_date + relativedelta(days=-1)
         cls.end_date = cls.start_date + relativedelta(day=31)
         cls.first_creation_date = fields.Date.from_string("2022-01-01")
+        # Note: fr_vat_exigibility parameter removed - configure tax_exigibility on taxes instead
         cls.on_invoice_company = cls.env["res.company"]._test_fr_vat_create_company(
-            company_name="FR Company VAT on_invoice", fr_vat_exigibility="on_invoice"
+            company_name="FR Company VAT on_invoice"
         )
         cls.on_payment_company = cls.env["res.company"]._test_fr_vat_create_company(
-            company_name="FR Company VAT on_payment", fr_vat_exigibility="on_payment"
+            company_name="FR Company VAT on_payment"
         )
 
     def _check_vat_return_result(self, vat_return, box_result, move_result):
