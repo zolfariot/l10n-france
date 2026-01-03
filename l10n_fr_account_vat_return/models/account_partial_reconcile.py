@@ -8,8 +8,6 @@ from odoo import models
 class AccountPartialReconcile(models.Model):
     _inherit = "account.partial.reconcile"
 
-    def _create_tax_cash_basis_moves(self):
-        return self.env["account.move"]
-
-    def _collect_tax_cash_basis_values(self):
-        return {}
+    # Native Odoo tax cash basis journal entries are now enabled
+    # The VAT return will use native tax exigibility to determine
+    # which amounts should be included in the VAT calculation

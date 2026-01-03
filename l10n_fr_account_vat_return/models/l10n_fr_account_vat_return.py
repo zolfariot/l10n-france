@@ -647,19 +647,9 @@ class L10nFrAccountVatReturn(models.Model):
                 )
                 % bad_fp.display_name
             )
-        on_payment_taxes_count = speedy["at_obj"].search_count(
-            speedy["company_domain"] + [("tax_exigibility", "=", "on_payment")]
-        )
-        if on_payment_taxes_count:
-            raise UserError(
-                _(
-                    "There are still On Payment taxes in company '%s'. "
-                    "To handle on payment VAT, this module uses a different "
-                    "implementation than the native solution based on a "
-                    "configuration parameter on taxes."
-                )
-                % self.company_id.display_name
-            )
+        # Native Odoo tax exigibility (on_payment) is now supported
+        # The VAT calculation will use account balances which already
+        # reflect the tax exigibility settings on taxes
         action = self._generate_autoliq_lines(speedy)
         return action
 
@@ -1154,9 +1144,8 @@ class L10nFrAccountVatReturn(models.Model):
             sale_vat_account2rate,
         ) = self._generate_due_vat_prepare_sale_struct(speedy)
         logger.debug("sale_vat_account2rate=%s", sale_vat_account2rate)
-        vat_on_payment_account2logs = self._vat_on_payment(
-            "out", sale_vat_accounts.ids, speedy
-        )
+        # With native tax exigibility, account balances already reflect
+        # only paid amounts for taxes with tax_exigibility='on_payment'
         # generate type_rate2logs['france']
         for sale_vat_account, rate_int in sale_vat_account2rate.items():
             # Start from balance of VAT account, then compute base
@@ -1177,10 +1166,6 @@ class L10nFrAccountVatReturn(models.Model):
                         "amount": balance,
                     }
                 )
-            # remove on_payment invoices unpaid on end_date for type_rate2logs
-            type_rate2logs["regular_france"][rate_int] += vat_on_payment_account2logs[
-                sale_vat_account
-            ]
         # MONACO
         monaco_logs = self._generate_due_vat_monaco(speedy, sale_vat_accounts)
         return monaco_logs
@@ -1475,177 +1460,6 @@ class L10nFrAccountVatReturn(models.Model):
             new_value,
         )
 
-    def _vat_on_payment(self, in_or_out, vat_account_ids, speedy):
-        assert in_or_out in ("in", "out")
-        account2logs = defaultdict(list)
-        common_move_domain = speedy["company_domain"] + [
-            ("date", "<=", self.end_date),
-            ("amount_total", ">", 0),
-            ("state", "=", "posted"),
-        ]
-        if in_or_out == "in":
-            journal_type = "purchase"
-            vat_sign = -1
-            account_type = "liability_payable"
-            common_move_domain += [
-                ("move_type", "in", ("in_invoice", "in_refund")),
-                ("fiscal_position_fr_vat_type", "=", "france_vendor_vat_on_payment"),
-            ]
-        elif in_or_out == "out":
-            journal_type = "sale"
-            vat_sign = 1
-            account_type = "asset_receivable"
-            common_move_domain += [
-                ("out_vat_on_payment", "=", True),
-                ("move_type", "in", ("out_invoice", "out_refund")),
-                (
-                    "fiscal_position_fr_vat_type",
-                    "in",
-                    (False, "france", "france_vendor_vat_on_payment"),
-                ),
-            ]
-        # The goal of this method is to "remove" on_payment invoices that were unpaid
-        # on self.end_date
-        # Several cases :
-        # 1) Unpaid invoices today:
-        # if they are unpaid today, they were unpaid on end_date -> easy
-        # 2) Partially paid invoices today:
-        # they were unpaid or partially paid on end_date
-        # Volume is low, we can analyse them one by one
-        # 3) Paid and in_payment invoices today:
-        # we want to find paid/in_payment invoices that were unpaid or partially
-        # paid on end_date.
-        # Volume is high, so it would be too lengthy to analyse all of them
-        # => to detect those, we look at move lines with a full reconcile created
-        # after end_date
-
-        # Case 1. unpaid invoices
-        unpaid_invs = speedy["am_obj"].search(
-            common_move_domain + [("payment_state", "=", "not_paid")]
-        )
-        for unpaid_inv in unpaid_invs:
-            for line in unpaid_inv.line_ids.filtered(
-                lambda x: x.display_type == "tax" and x.account_id.id in vat_account_ids
-            ):
-                amount = speedy["currency"].round(line.balance) * vat_sign
-                note = _(
-                    "%(invoice)s (%(partner)s) is unpaid, "
-                    "Unpaid VAT amount %(amount)s",
-                    invoice=unpaid_inv.name,
-                    partner=unpaid_inv.commercial_partner_id.display_name,
-                    amount=format_amount(self.env, amount, speedy["currency"]),
-                )
-                account2logs[line.account_id].append(
-                    {
-                        "note": note,
-                        "amount": amount,
-                        "account_id": line.account_id.id,
-                        "compute_type": "unpaid_vat_on_payment",
-                        "origin_move_id": unpaid_inv.id,
-                    }
-                )
-        # Case 2: partially paid invoices
-        partially_paid_invs = speedy["am_obj"].search(
-            common_move_domain + [("payment_state", "=", "partial")]
-        )
-
-        # Case 3: paid and in_payment invoices
-        purchase_or_sale_journals = speedy["aj_obj"].search(
-            speedy["company_domain"] + [("type", "=", journal_type)]
-        )
-        # won't work when the invoice is paid next month by a refund
-        payable_or_receivable_accounts = speedy["aa_obj"].search(
-            speedy["company_domain_account"] + [("account_type", "=", account_type)]
-        )
-        # I want reconcile marks after first day of current month
-        # But, to avoid trouble with timezones, I use '>=' self.end_date (and not '>')
-        # It's not a problem if we have few additionnal invoices to analyse
-        full_reconcile_post_end = self.env["account.full.reconcile"].search(
-            [("create_date", ">=", self.end_date)]
-        )
-        reconciled_purchase_or_sale_lines = speedy["aml_obj"].search(
-            speedy["base_domain"]
-            + [
-                ("full_reconcile_id", "in", full_reconcile_post_end.ids),
-                ("journal_id", "in", purchase_or_sale_journals.ids),
-                ("date", "<=", self.end_date),
-                ("account_id", "in", payable_or_receivable_accounts.ids),
-                ("balance", "!=", 0),
-            ]
-        )
-        # I do confirm that, if 2 moves lines in reconciled_purchase_or_sale_lines
-        # are part of the same move, that move will be present only once
-        # in paid_invoices_to_analyse (tested on v14)
-        paid_invoices_to_analyse = speedy["am_obj"].search(
-            common_move_domain
-            + [
-                ("payment_state", "in", ("paid", "in_payment", "reversed")),
-                ("id", "in", reconciled_purchase_or_sale_lines.move_id.ids),
-            ]
-        )
-        # Process case 2 and 3
-        invoices_to_analyse = partially_paid_invs
-        invoices_to_analyse |= paid_invoices_to_analyse
-        for move in invoices_to_analyse:
-            # compute unpaid_amount on end_date
-            unpaid_amount = move.amount_total  # initialize value
-            fully_unpaid = True
-            pay_infos = (
-                isinstance(move.invoice_payments_widget, dict)
-                and move.invoice_payments_widget["content"]
-                or []
-            )
-            for payment in pay_infos:
-                if payment["date"] <= self.end_date and payment["amount"]:
-                    unpaid_amount -= payment["amount"]
-                    fully_unpaid = False
-            # If invoice is not fully paid on end_date, compute an unpaid ratio
-            if not move.currency_id.is_zero(unpaid_amount):
-                unpaid_ratio = unpaid_amount / move.amount_total
-                for line in move.line_ids.filtered(
-                    lambda x: x.display_type == "tax"
-                    and x.account_id.id in vat_account_ids
-                ):
-                    balance = line.balance * vat_sign
-                    if fully_unpaid:
-                        amount = speedy["currency"].round(balance)
-                        note = _(
-                            "%(invoice)s (%(partner)s) was unpaid on %(date)s, "
-                            "Unpaid VAT amount %(amount)s",
-                            invoice=move.name,
-                            partner=move.commercial_partner_id.display_name,
-                            date=speedy["end_date_formatted"],
-                            amount=format_amount(self.env, amount, speedy["currency"]),
-                        )
-                    else:
-                        amount = speedy["currency"].round(balance * unpaid_ratio)
-                        note = _(
-                            "%(unpaid_ratio)d%% of %(invoice)s (%(partner)s) "
-                            "was unpaid on %(date)s, VAT amount %(total_vat_amount)s → "
-                            "Unpaid VAT amount %(unpaid_vat_amount)s",
-                            unpaid_ratio=int(round(unpaid_ratio * 100)),
-                            invoice=move.name,
-                            partner=move.commercial_partner_id.display_name,
-                            date=speedy["end_date_formatted"],
-                            total_vat_amount=format_amount(
-                                self.env, balance, speedy["currency"]
-                            ),
-                            unpaid_vat_amount=format_amount(
-                                self.env, amount, speedy["currency"]
-                            ),
-                        )
-
-                    account2logs[line.account_id].append(
-                        {
-                            "note": note,
-                            "amount": amount,
-                            "account_id": line.account_id.id,
-                            "compute_type": "unpaid_vat_on_payment",
-                            "origin_move_id": move.id,
-                        }
-                    )
-        return account2logs
-
     def _generate_deductible_vat(self, speedy):
         self.ensure_one()
         vat_account2type = self._generate_deductible_vat_prepare_struct(speedy)
@@ -1665,15 +1479,8 @@ class L10nFrAccountVatReturn(models.Model):
             ],
         }
 
-        vat_payment_deduc_accounts = speedy["aa_obj"]
-        for account, vtype in vat_account2type.items():
-            if vtype in ("asset", "regular"):
-                vat_payment_deduc_accounts |= account
-
-        # Generate logs for vat_on_payment supplier invoices
-        vat_on_payment_account2logs = self._vat_on_payment(
-            "in", vat_payment_deduc_accounts.ids, speedy
-        )
+        # With native tax exigibility, account balances already reflect
+        # only paid amounts for taxes with tax_exigibility='on_payment'
 
         # Generate return line for the 2 deduc VAT boxes
         for box_meaning_id, vat_accounts in box_meaning_id2vat_accounts.items():
@@ -1694,8 +1501,6 @@ class L10nFrAccountVatReturn(models.Model):
                             "amount": balance,
                         }
                     )
-                # minus unpaid vat_on_payment supplier invoices
-                logs += vat_on_payment_account2logs[vat_account]
             self._create_line(
                 speedy, logs, box_meaning_id, negative_box="negative_deductible_vat"
             )
@@ -2024,15 +1829,7 @@ class L10nFrAccountVatReturn(models.Model):
         return vals
 
     def _reconcile_account_move(self, move, speedy):
-        excluded_lines = speedy["log_obj"].search_read(
-            [
-                ("parent_parent_id", "=", self.id),
-                ("origin_move_id", "!=", False),
-                ("compute_type", "=", "unpaid_vat_on_payment"),
-            ],
-            ["origin_move_id"],
-        )
-        excluded_line_ids = [x["origin_move_id"][0] for x in excluded_lines]
+        # With native tax exigibility, we don't need to exclude unpaid_vat_on_payment
         # to allow reconciliation of 445670, we need to exclude the debit line
         # from the reconciliation to have a balance at 0
         credit_vat_account = self._get_box_account(
@@ -2052,7 +1849,6 @@ class L10nFrAccountVatReturn(models.Model):
                 ("account_id", "=", account.id),
                 ("reconciled", "=", False),
                 ("full_reconcile_id", "=", False),
-                ("move_id", "not in", excluded_line_ids),
             ]
             if account == credit_vat_account and credit_vat_debit_mline:
                 domain.append(("id", "!=", credit_vat_debit_mline.id))
