@@ -672,96 +672,7 @@ class L10nFrAccountVatReturn(models.Model):
         return action
 
     def _generate_autoliq_lines(self, speedy):
-        self.ensure_one()
-        action = False
-        if self.autoliq_manual_done:
-            return action
-        elif self.autoliq_line_ids:
-            self.autoliq_line_ids.unlink()
-
-        for autoliq_type in ("intracom", "extracom"):
-            autoliq_vat_move_lines = speedy["aml_obj"].search(
-                [
-                    (
-                        "account_id",
-                        "in",
-                        speedy["autoliq_taxedop_type2accounts"][autoliq_type].ids,
-                    ),
-                    ("balance", "!=", 0),
-                    ("full_reconcile_id", "=", False),
-                ]
-                + speedy["base_domain_end"]
-            )
-            for line in autoliq_vat_move_lines:
-                if line.journal_id.type == "sale":
-                    raise UserError(
-                        _(
-                            "The journal item '%(line)s' has the autoliquidation "
-                            "VAT account '%(account)s' and is in the sale journal "
-                            "'%(journal)s'. Autoliquidation VAT accounts should "
-                            "never be found in sale journals.",
-                            line=line.display_name,
-                            account=line.account_id.display_name,
-                            journal=line.journal_id.display_name,
-                        )
-                    )
-                total = 0.0
-                product_subtotal = 0.0
-                move = line.move_id
-                rate_int = speedy["autoliq_vat_account2rate"][line.account_id]
-                is_invoice = move.is_invoice()
-                if is_invoice:
-                    other_lines = move.invoice_line_ids.filtered(
-                        lambda x: x.display_type == "product"
-                    )
-                else:
-                    other_lines = speedy["aml_obj"]
-                    for oline in move.line_ids:
-                        if (
-                            oline.id != line.id
-                            and oline.account_id.account_type.startswith("expense")
-                        ):
-                            other_lines |= oline
-                for oline in other_lines:
-                    for tax in oline.tax_ids:
-                        if (
-                            tax in speedy["autoliq_tax2rate"]
-                            and speedy["autoliq_tax2rate"][tax] == rate_int
-                        ):
-                            total += oline.balance
-                            product_or_service = oline._fr_is_product_or_service()
-                            if product_or_service == "product":
-                                product_subtotal += oline.balance
-                            break
-                vals = {
-                    "parent_id": self.id,
-                    "move_line_id": line.id,
-                    "autoliq_type": autoliq_type,
-                    "vat_rate_int": rate_int,
-                }
-                if speedy["currency"].is_zero(total):
-                    vals["compute_type"] = "manual"
-                    autoliq_line = speedy["autoliq_line_obj"].create(vals)
-                    if not action:
-                        action = self.env["ir.actions.actions"]._for_xml_id(
-                            "l10n_fr_account_vat_return.l10n_fr_vat_autoliq_manual_action"
-                        )
-                        action["context"] = {
-                            "default_fr_vat_return_id": self.id,
-                            "default_line_ids": [],
-                        }
-                    action["context"]["default_line_ids"].append(
-                        (0, 0, {"autoliq_line_id": autoliq_line.id})
-                    )
-                else:
-                    vals.update(
-                        {
-                            "compute_type": "auto",
-                            "product_ratio": round(100 * product_subtotal / total, 2),
-                        }
-                    )
-                    speedy["autoliq_line_obj"].create(vals)
-        return action
+        return False
 
     def _generate_ca3_bottom_totals(self, speedy):
         # Process the END of CA3 by hand
@@ -1189,117 +1100,98 @@ class L10nFrAccountVatReturn(models.Model):
         return monaco_logs
 
     def _generate_due_vat_autoliq(self, speedy, type_rate2logs):
-        # compute bloc "opérations imposables" / Intracom
-        # Split product/service
-        autoliq_rate2product_ratio = {
-            "intracom": {},  # {2000: {'total': 200.0, 'product_subtotal': 112.80}}
-            "extracom": {},
+        # Mapping from Grid Code to ptype
+        # Note: The ptype names correspond to the meaning_id of the boxes in
+        # l10n.fr.account.vat.box.csv. They might be historically named
+        # "intracom" or "extracom" but they map to specific boxes:
+        # A3 -> regular_intracom_service_autoliq (General reverse charge, Art 283-2)
+        # B2 -> regular_intracom_product_autoliq (Intracom Acquisitions, Goods)
+        # A4 -> extracom_product_autoliq (Imports)
+        # B4 -> regular_extracom_service_autoliq (Specific reverse charge, Art 283-1)
+        grid_map = {
+            "A3": "regular_intracom_service_autoliq",
+            "B2": "regular_intracom_product_autoliq",
+            "A4": "extracom_product_autoliq",
+            "B4": "regular_extracom_service_autoliq",
         }
-        for line in self.autoliq_line_ids:
-            if line.vat_rate_int not in autoliq_rate2product_ratio[line.autoliq_type]:
-                autoliq_rate2product_ratio[line.autoliq_type][line.vat_rate_int] = (
-                    defaultdict(float)
-                )
-            # If the implementation was perfect, we would not have to use abs() !
-            # But, in the current implementation, we take the balance of the autoliq VAT
-            # account and we apply a product ratio. With this implementation, we don't
-            # handle the case where autoliq product > 0 and autoliq service < 0
-            # (or the opposite) which would require a special treatment.
-            # abs() introduces a distortion when we have positive and negative amounts
-            # in the autoliq lines. But, if we don't use it, we can have a ratio > 100
-            balance = abs(line.move_line_id.balance)
-            autoliq_rate2product_ratio[line.autoliq_type][line.vat_rate_int][
-                "total"
-            ] += balance
-            autoliq_rate2product_ratio[line.autoliq_type][line.vat_rate_int][
-                "product_subtotal"
-            ] += speedy["currency"].round(balance * line.product_ratio / 100)
-        # autoliq_intracom_product_logs = []  # for box 17
-        # Compute both block B and block A for autoliq intracom + extracom
-        for autoliq_type, accounts in speedy["autoliq_taxedop_type2accounts"].items():
-            # autoliq_type is 'intracom' or 'extracom'
-            for account in accounts:
-                total_vat_amount = (
-                    account._fr_vat_get_balance("base_domain_end", speedy) * -1
-                )
-                if speedy["currency"].is_zero(total_vat_amount):
-                    continue
-                rate_int = speedy["autoliq_vat_account2rate"][account]
-                # If you have a small residual amount in intracom/extracom autoliq
-                # accounts and you set it to 0 with a write-off at a date after the
-                # VAT period, you have 0 unreconciled move lines, but
-                # total_vat_amount != 0
-                # In such a corner case, there is not rate_int key in
-                # autoliq_rate2product_ratio[autoliq_type]
-                # => we consider product_ratio = 0% and service_ratio = 100%
-                product_ratio = 0
-                if rate_int in autoliq_rate2product_ratio[autoliq_type]:
-                    rate_data = autoliq_rate2product_ratio[autoliq_type][rate_int]
-                    product_ratio = round(
-                        100 * rate_data["product_subtotal"] / rate_data["total"], 2
-                    )
-                    assert float_compare(product_ratio, 100, precision_digits=2) <= 0
-                    assert float_compare(product_ratio, 0, precision_digits=2) >= 0
-                else:
-                    logger.warning(
-                        "rate_int %s not in autoliq_rate2product_ratio[%s]. "
-                        "This can happen only in a very rare scenario.",
-                        rate_int,
-                        autoliq_type,
-                    )
-                ratio = {
-                    "product": product_ratio,
-                    "service": 100 - product_ratio,
-                }
-                product_vat_amount = round(total_vat_amount * product_ratio / 100, 2)
-                ps_vat_amount = {
-                    "product": product_vat_amount,
-                    "service": total_vat_amount - product_vat_amount,
-                }
-                for ps_type in ["product", "service"]:
-                    vat_amount = ps_vat_amount[ps_type]
-                    if speedy["currency"].is_zero(vat_amount):
-                        continue
-                    ptype = f"regular_{autoliq_type}_{ps_type}_autoliq"
-                    if ptype == "regular_extracom_product_autoliq":
-                        ptype = "extracom_product_autoliq"
-                    # Block B
-                    # For proper translation in other languges, product/service
-                    # cannot be a variable in the note field
-                    if ps_type == "product":
-                        vat_note = _(
-                            "VAT amount %(total_vat_amount)s, "
-                            "Product ratio %(ratio).2f%% "
-                            "→ Product VAT amount %(vat_amount)s",
-                            total_vat_amount=format_amount(
-                                self.env, total_vat_amount, speedy["currency"]
-                            ),
-                            ratio=ratio[ps_type],
-                            vat_amount=format_amount(
-                                self.env, vat_amount, speedy["currency"]
-                            ),
-                        )
-                    elif ps_type == "service":
-                        vat_note = _(
-                            "VAT amount %(total_vat_amount)s, "
-                            "Service ratio %(ratio).2f%% "
-                            "→ Service VAT amount %(vat_amount)s",
-                            total_vat_amount=format_amount(
-                                self.env, total_vat_amount, speedy["currency"]
-                            ),
-                            ratio=ratio[ps_type],
-                            vat_amount=format_amount(
-                                self.env, vat_amount, speedy["currency"]
-                            ),
-                        )
 
-                    vat_log = {
-                        "account_id": account.id,
-                        "compute_type": "balance_ratio",
-                        "amount": vat_amount,
-                        "note": vat_note,
-                    }
-                    type_rate2logs[ptype][rate_int].append(vat_log)
+        # Find tags
+        tags = self.env["account.account.tag"].search(
+            [
+                ("country_id", "=", self.env.ref("base.fr").id),
+                ("applicability", "=", "taxes"),
+            ]
+        )
+
+        tag_id2code = {}
+        for tag in tags:
+            if not tag.name:
+                continue
+            for code in grid_map.keys():
+                if tag.name == f"+{code}" or tag.name == f"-{code}":
+                    tag_id2code[tag.id] = code
+
+        if not tag_id2code:
+            return
+
+        # Query lines
+        domain = speedy["base_domain"] + [
+            ("date", ">=", self.start_date),
+            ("date", "<=", self.end_date),
+            ("tax_tag_ids", "in", list(tag_id2code.keys())),
+        ]
+
+        lines = speedy["aml_obj"].search(domain)
+        data = defaultdict(float)  # (ptype, rate_int, account) -> total_base
+        tax2account = {}
+
+        for line in lines:
+            autoliq_tax = False
+            for tax in line.tax_ids:
+                if tax in speedy["autoliq_tax2rate"]:
+                    autoliq_tax = tax
+                    break
+
+            if not autoliq_tax:
+                continue
+
+            rate_int = speedy["autoliq_tax2rate"][autoliq_tax]
+
+            # Find account for this tax
+            if autoliq_tax not in tax2account:
+                lines_repart = autoliq_tax.invoice_repartition_line_ids.filtered(
+                    lambda x: x.repartition_type == "tax"
+                    and x.account_id
+                    and int(x.factor_percent) == -100
+                )
+                tax2account[autoliq_tax] = lines_repart.account_id
+
+            account = tax2account[autoliq_tax]
+
+            # Determine which codes apply to this line
+            matched_codes = set()
+            for tag in line.tax_tag_ids:
+                if tag.id in tag_id2code:
+                    matched_codes.add(tag_id2code[tag.id])
+
+            for code in matched_codes:
+                ptype = grid_map[code]
+                data[(ptype, rate_int, account)] += line.balance
+
+        for (ptype, rate_int, account), total_base in data.items():
+            if speedy["currency"].is_zero(total_base):
+                continue
+
+            tax_amount = speedy["currency"].round(total_base * rate_int / 10000)
+
+            vat_log = {
+                "account_id": account.id,
+                "compute_type": "balance_tags",
+                "amount": tax_amount,
+                "note": _("Computed from tags, Base: %s")
+                % format_amount(self.env, total_base, speedy["currency"]),
+            }
+            type_rate2logs[ptype][rate_int].append(vat_log)
 
     def _generate_taxed_op_and_due_vat_lines(self, speedy, type_rate2logs):
         # Create boxes 08, 09, 9B (columns base HT et Taxe due)
