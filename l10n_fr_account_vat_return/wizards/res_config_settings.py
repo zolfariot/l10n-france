@@ -11,11 +11,7 @@ class ResConfigSettings(models.TransientModel):
     fr_vat_periodicity = fields.Selection(
         related="company_id.fr_vat_periodicity", readonly=False
     )
-    fr_vat_exigibility = fields.Selection(
-        related="company_id.fr_vat_exigibility",
-        readonly=True,
-        # value is updated by the wizard l10n.fr.vat.exigibility.update
-    )
+    # Removed fr_vat_exigibility - use native tax.tax_exigibility instead
     fr_vat_update_lock_dates = fields.Boolean(
         related="company_id.fr_vat_update_lock_dates", readonly=False
     )

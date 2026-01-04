@@ -11,7 +11,11 @@ class L10nFrAccountVatReturnReimbursement(models.TransientModel):
     _description = "FR VAT Reimbursement (3519)"
 
     return_id = fields.Many2one(
-        "l10n.fr.account.vat.return", readonly=True, required=True, string="VAT Return"
+        "l10n.fr.account.vat.return",
+        readonly=True,
+        required=True,
+        string="VAT Return",
+        ondelete="cascade",
     )
     company_currency_id = fields.Many2one(related="return_id.company_id.currency_id")
     min_amount = fields.Integer(related="return_id.reimbursement_min_amount")
@@ -59,8 +63,8 @@ class L10nFrAccountVatReturnReimbursement(models.TransientModel):
         self.return_id.message_post(
             body=_("Credit VAT reimbursement of %d € submitted.") % self.amount
         )
-        self.return_id.create_reimbursement_line(self.amount)
         self.return_id._delete_move_and_attachments()
+        self.return_id.create_reimbursement_line(self.amount)
         move = self.return_id._create_draft_account_move(speedy)
         self.return_id.write(self._prepare_return_write(move.id))
 

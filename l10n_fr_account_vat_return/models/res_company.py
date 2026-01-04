@@ -24,11 +24,7 @@ class ResCompany(models.Model):
         default="1",
         string="VAT Periodicity",
     )
-    fr_vat_exigibility = fields.Selection(
-        "_fr_vat_exigibility_selection",
-        default="on_invoice",
-        string="VAT Exigibility",
-    )
+    # Removed fr_vat_exigibility field - use native tax.tax_exigibility instead
     fr_vat_update_lock_dates = fields.Boolean(
         string="Update Lock Date upon VAT Return Validation"
     )
@@ -64,14 +60,7 @@ class ResCompany(models.Model):
         "reimbursements.",
     )
 
-    @api.model
-    def _fr_vat_exigibility_selection(self):
-        res = [
-            ("on_invoice", _("Based on invoice")),
-            ("on_payment", _("Based on payment")),
-            ("auto", _("Both (automatic)")),
-        ]
-        return res
+    # Removed _fr_vat_exigibility_selection method - use native tax.tax_exigibility instead
 
     def _compute_fr_vat_analytic_distribution(self):
         aadmo = self.env["account.analytic.distribution.model"]
@@ -140,14 +129,14 @@ class ResCompany(models.Model):
 
     @api.model
     def _test_fr_vat_create_company(
-        self, company_name=None, fr_vat_exigibility="on_invoice"
+        self, company_name=None
     ):
+        # Removed fr_vat_exigibility parameter - use native tax.tax_exigibility instead
         # I write this method here and not in the test,
         # because it can be very useful for demos too
         self = self.sudo()
         company_vals = {
             "name": company_name or "FR Company VAT",
-            "fr_vat_exigibility": fr_vat_exigibility,
             "street": "42 rue du logiciel libre",
             "zip": "69009",
             "city": "Lyon",
@@ -290,8 +279,9 @@ class ResCompany(models.Model):
                 )
 
     def _test_create_invoice_with_payment(
-        self, move_type, date, partner, lines, payments, force_in_vat_on_payment=False
+        self, move_type, date, partner, lines, payments
     ):
+        # Removed force_in_vat_on_payment parameter - use native tax.tax_exigibility instead
         self.ensure_one()
         amo = self.env["account.move"].with_company(self.id)
         apro = self.env["account.payment.register"]
@@ -309,8 +299,7 @@ class ResCompany(models.Model):
             line["display_type"] = "product"
             vals["invoice_line_ids"].append(Command.create(line))
         move = amo.create(vals)
-        if move_type in ("in_invoice", "in_refund") and force_in_vat_on_payment:
-            move.write({"in_vat_on_payment": True})
+        # Removed in_vat_on_payment logic - use native tax.tax_exigibility instead
         move.action_post()
 
         bank_journal = self.env["account.journal"].search(

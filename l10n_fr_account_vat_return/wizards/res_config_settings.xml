@@ -12,18 +12,7 @@
             <block name="default_taxes_setting_container" position="after">
                 <block title="France VAT" name="fr_vat_block">
                     <setting id="fr_vat">
-                        <div class="row mt16" id="fr_vat_exigibility">
-                            <label for="fr_vat_exigibility" class="col-md-3" />
-                            <field name="fr_vat_exigibility" class="col-md-3" />
-                            <button
-                                type="action"
-                                name="%(l10n_fr_vat_exigibility_update_action)d"
-                                string="Change VAT Exigibility"
-                                context="{'default_company_id': company_id}"
-                                class="oe_link"
-                                icon="fa-exchange"
-                            />
-                        </div>
+                        <!-- Removed fr_vat_exigibility field - use native tax.tax_exigibility instead -->
                         <div class="row mt16" id="fr_vat_periodicity">
                             <label for="fr_vat_periodicity" class="col-md-3" />
                             <field name="fr_vat_periodicity" />

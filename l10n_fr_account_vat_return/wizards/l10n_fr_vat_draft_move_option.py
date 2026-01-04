@@ -11,7 +11,10 @@ class L10nFrVatDraftMoveOption(models.TransientModel):
     _description = "FR VAT Return: show or continue"
 
     fr_vat_return_id = fields.Many2one(
-        "l10n.fr.account.vat.return", string="FR VAT Return", readonly=True
+        "l10n.fr.account.vat.return",
+        string="FR VAT Return",
+        readonly=True,
+        ondelete="cascade",
     )
     end_date = fields.Date(related="fr_vat_return_id.end_date")
     draft_move_ids = fields.Many2many(
