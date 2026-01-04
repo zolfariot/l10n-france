@@ -1103,12 +1103,12 @@ class L10nFrAccountVatReturn(models.Model):
     def _generate_due_vat_autoliq(self, speedy, type_rate2logs):
         # Mapping from Grid Code to ptype
         # Note: The ptype names correspond to the meaning_id of the boxes in
-        # l10n.fr.account.vat.box.csv. They might be historically named
-        # "intracom" or "extracom" but they map to specific boxes:
-        # A3 -> regular_intracom_service_autoliq (General reverse charge, Art 283-2)
+        # l10n.fr.account.vat.box.csv.
+        # A3 -> regular_intracom_service_autoliq (General reverse charge, Art 283-2, Service)
+        #       Note: A3 covers both Intracom and Extracom services (Art 283-2)
         # B2 -> regular_intracom_product_autoliq (Intracom Acquisitions, Goods)
         # A4 -> extracom_product_autoliq (Imports)
-        # B4 -> regular_extracom_service_autoliq (Specific reverse charge, Art 283-1)
+        # B4 -> regular_extracom_service_autoliq (Specific reverse charge, Art 283-1, Goods or Services)
         grid_map = {
             "A3": "regular_intracom_service_autoliq",
             "B2": "regular_intracom_product_autoliq",
@@ -1136,6 +1136,9 @@ class L10nFrAccountVatReturn(models.Model):
             return
 
         # Query lines
+        # We explicitly filter by date to include only moves within the VAT period.
+        # Unlike regular VAT which relies on account balance (and thus includes history),
+        # autoliquidation via tags must be computed on the period's operations.
         domain = speedy["base_domain"] + [
             ("date", ">=", self.start_date),
             ("date", "<=", self.end_date),
@@ -1268,6 +1271,8 @@ class L10nFrAccountVatReturn(models.Model):
 
         for box, logs in box2logs.items():
             line = self._create_line(speedy, logs, box)
+            if not line:
+                continue
             box_rec = line.box_id
             if box_rec.meaning_id and box_rec.meaning_id.startswith(
                 ("due_vat_regular_", "due_vat_extracom_product_")
@@ -2281,11 +2286,16 @@ class L10nFrAccountVatReturnLineLog(models.Model):
             # used for untaxed operations, starting 02/2024
             ("period_balance_sale", "Period Balance in Sale Journal"),
             ("balance", "Ending Balance"),  # used for VAT boxes
+            ("balance_tags", "Balance from Tags"),  # used for autoliq VAT boxes
             ("balance_ratio", "Ending Balance x Ratio"),  # used for VAT boxes
             ("unpaid_vat_on_payment", "Unpaid VAT on Payment"),  # used for VAT boxes
             (
                 "base_from_balance",
                 "Base from Ending Balance",
+            ),  # used for taxed operations
+            (
+                "base_from_balance_tags",
+                "Base from Balance from Tags",
             ),  # used for taxed operations
             (
                 "base_from_balance_ratio",
