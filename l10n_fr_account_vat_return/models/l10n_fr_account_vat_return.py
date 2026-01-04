@@ -214,6 +214,11 @@ class L10nFrAccountVatReturn(models.Model):
     @api.depends("start_date", "vat_periodicity")
     def _compute_name_end_date(self):
         for rec in self:
+            if not rec.exists():
+                rec.name = False
+                rec.end_date = False
+                rec.reimbursement_min_amount = 0
+                continue
             end_date = name = False
             reimbursement_min_amount = MINIMUM_AMOUNT
             if rec.start_date and rec.vat_periodicity:
@@ -242,6 +247,9 @@ class L10nFrAccountVatReturn(models.Model):
     )
     def _compute_reimbursement_show_button(self):
         for rec in self:
+            if not rec.exists():
+                rec.reimbursement_show_button = False
+                continue
             reimbursement_show_button = False
             if (
                 rec.state == "auto"
@@ -255,12 +263,19 @@ class L10nFrAccountVatReturn(models.Model):
     @api.depends("company_id")
     def _compute_bank_account_id(self):
         for rec in self:
+            if not rec.exists():
+                rec.bank_account_id = False
+                continue
             rec.bank_account_id = rec.company_id.fr_vat_bank_account_id.id or False
 
     @api.depends("company_id")
     def _compute_start_date(self):
         today = fields.Date.context_today(self)
         for rec in self:
+            if not rec.exists():
+                rec.start_date = False
+                rec.vat_periodicity = False
+                continue
             vat_periodicity = rec.company_id.fr_vat_periodicity or False
             start_date = False
             if rec.company_id and vat_periodicity:
@@ -290,6 +305,9 @@ class L10nFrAccountVatReturn(models.Model):
     @api.depends("name", "vat_periodicity")
     def _compute_display_name(self):
         for rec in self:
+            if not rec.exists():
+                rec.display_name = ""
+                continue
             if rec.vat_periodicity == "12":
                 name = f"CA12 {rec.name}"
             else:
@@ -512,10 +530,10 @@ class L10nFrAccountVatReturn(models.Model):
     def back_to_manual(self):
         self.ensure_one()
         assert self.state in ("auto", "sent")
+        self._delete_move_and_attachments()
         self.autoliq_line_ids.unlink()
         # del auto lines
         self.line_ids.filtered(lambda x: not x.box_manual).unlink()
-        self._delete_move_and_attachments()
         vals = {
             "state": "manual",
             "ignore_draft_moves": False,
@@ -1699,12 +1717,15 @@ class L10nFrAccountVatReturn(models.Model):
         self.ensure_one()
         speedy = self._prepare_speedy()
         self.message_post(body=_("Credit VAT Reimbursement removed."))
+        self._delete_move_and_attachments()
         line_to_delete = speedy["line_obj"].search(
-            [("box_meaning_id", "=", "vat_reimbursement"), ("parent_id", "=", self.id)]
+            [
+                ("box_meaning_id", "=", "vat_reimbursement"),
+                ("parent_id", "=", self.id),
+            ]
         )
         line_to_delete.unlink()
         self._generate_ca3_bottom_totals(speedy)
-        self._delete_move_and_attachments()
         move = self._create_draft_account_move(speedy)
         vals = self._prepare_remove_credit_vat_reimbursement()
         vals["move_id"] = move.id
@@ -1969,6 +1990,20 @@ class L10nFrAccountVatReturn(models.Model):
                     )
                     % rec.display_name
                 )
+        # Explicitly remove child records and followers before deleting the
+        # return to avoid related-field recompute on already-deleted parents.
+        # This reproduces the UI flow (tree delete) where flush can recompute
+        # related fields mid-unlink and raise MissingError otherwise.
+        if self.line_ids:
+            self.line_ids.unlink()
+        if self.autoliq_line_ids:
+            self.autoliq_line_ids.unlink()
+        if self.activity_ids:
+            self.activity_ids.unlink()
+        if self.message_ids:
+            self.message_ids.unlink()
+        if self.message_follower_ids:
+            self.message_follower_ids.sudo().unlink()
         return super().unlink()
 
     def print_ca3(self):
@@ -2226,6 +2261,10 @@ class L10nFrAccountVatReturnLine(models.Model):
     def _compute_manual_account_id(self):
         aadmo = self.env["account.analytic.distribution.model"]
         for line in self:
+            if not line.exists():
+                line.manual_account_id = False
+                line.manual_analytic_distribution = False
+                continue
             manual_account_id = False
             manual_analytic_distribution = False
             if line.box_id and line.box_id.manual and line.parent_id:
@@ -2279,6 +2318,10 @@ class L10nFrAccountVatReturnLine(models.Model):
         )
         mapped_data = {parent.id: amount for (parent, amount) in rg_res}
         for line in self:
+            if not line.exists():
+                line.value = 0
+                line.value_float = 0
+                continue
             value = 0
             value_float = 0
             sign = line.box_id.negative and -1 or 1
@@ -2300,6 +2343,11 @@ class L10nFrAccountVatReturnLine(models.Model):
                     value = int(line.value_bool)
             line.value = value * sign
             line.value_float = value_float * sign
+
+    def unlink(self):
+        if self.log_ids:
+            self.log_ids.unlink()
+        return super().unlink()
 
 
 class L10nFrAccountVatReturnLineLog(models.Model):
