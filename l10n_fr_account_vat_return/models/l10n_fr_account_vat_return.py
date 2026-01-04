@@ -1378,99 +1378,88 @@ class L10nFrAccountVatReturn(models.Model):
 
     def _generate_deductible_vat(self, speedy):
         self.ensure_one()
-        vat_account2type = self._generate_deductible_vat_prepare_struct(speedy)
-        # vat_account2type is a dict with:
-        # key = deduc VAT account
-        # value = 'asset', 'regular' or 'autoliq'
-        box_meaning_id2vat_accounts = {
-            "deductible_vat_asset": [
-                account
-                for (account, vtype) in vat_account2type.items()
-                if vtype == "asset"
-            ],
-            "deductible_vat_other": [
-                account
-                for (account, vtype) in vat_account2type.items()
-                if vtype in ("autoliq", "regular")
-            ],
-        }
 
-        # With native tax exigibility, account balances already reflect
-        # only paid amounts for taxes with tax_exigibility='on_payment'
+        # Box 19: Deductible VAT on Assets (use Tags +19/-19)
+        tags_19 = self.env["account.account.tag"].search(
+            [
+                ("country_id", "=", self.env.ref("base.fr").id),
+                ("applicability", "=", "taxes"),
+                ("name", "in", ["+19", "-19"]),
+            ]
+        )
 
-        # Generate return line for the 2 deduc VAT boxes
-        for box_meaning_id, vat_accounts in box_meaning_id2vat_accounts.items():
-            logger.info(
-                "Deduc VAT accounts: %s go to box meaning_id %s",
-                ", ".join([x.code for x in vat_accounts]),
-                box_meaning_id,
-            )
+        if tags_19:
+            domain = speedy["base_domain"] + [
+                ("date", ">=", self.start_date),
+                ("date", "<=", self.end_date),
+                ("tax_tag_ids", "in", tags_19.ids),
+            ]
+            lines = speedy["aml_obj"].search(domain)
+
+            data = defaultdict(float)
+            for line in lines:
+                data[line.account_id] += line.balance
+
             logs = []
-            for vat_account in vat_accounts:
-                # balance of deduc VAT account
-                balance = vat_account._fr_vat_get_balance("base_domain_end", speedy)
-                if not speedy["currency"].is_zero(balance):
+            for account, amount in data.items():
+                if not speedy["currency"].is_zero(amount):
                     logs.append(
                         {
-                            "account_id": vat_account.id,
-                            "compute_type": "balance",
-                            "amount": balance,
+                            "account_id": account.id,
+                            "compute_type": "balance_tags",
+                            "amount": amount,
+                            "note": _("Computed from tags (+19/-19)"),
                         }
                     )
+
             self._create_line(
-                speedy, logs, box_meaning_id, negative_box="negative_deductible_vat"
+                speedy,
+                logs,
+                "deductible_vat_asset",
+                negative_box="negative_deductible_vat",
             )
 
-    def _generate_deductible_vat_prepare_struct(self, speedy):
-        vat_account2type = {}
-        deduc_vat_taxes = speedy["at_obj"].search(speedy["purchase_vat_tax_domain"])
-        for tax in deduc_vat_taxes:
-            line = tax.invoice_repartition_line_ids.filtered(
-                lambda x: x.repartition_type == "tax"
-                and x.account_id
-                and int(x.factor_percent) == 100
-            )
-            if len(line) != 1:
-                logger.debug(
-                    "Check that tax %s is a special gasoline tax", tax.display_name
-                )
-                continue
-            vat_account = line.account_id.with_company(speedy["company_id"])
-            if tax.fr_vat_autoliquidation:
-                vtype = "autoliq"
-            else:
-                if vat_account.code.startswith("44562"):
-                    vtype = "asset"
-                else:
-                    vtype = "regular"
-                    if not vat_account.code.startswith("44566"):
-                        logger.warning(
-                            "Found regular deduc VAT account %s. "
-                            "Very strange, it should start with 44566.",
-                            vat_account.code,
-                        )
-            if (
-                vat_account in vat_account2type
-                and vat_account2type[vat_account] != vtype
-            ):
-                raise UserError(
-                    _(
-                        "Account '%(account)s' is used for several kinds of "
-                        "deductible VAT taxes (%(type1)s and %(type2)s).",
-                        account=vat_account.display_name,
-                        type1=vtype,
-                        type2=vat_account2type[vat_account],
-                    )
-                )
-            vat_account2type[vat_account] = vtype
-
-        logger.info(
-            "Deduc VAT accounts: %s",
-            ", ".join(
-                [f"{acc.code} ({vtype})" for (acc, vtype) in vat_account2type.items()]
-            ),
+        # Box 20: Deductible VAT on Other Goods and Services (use Tags +20/-20)
+        # We trust the Odoo native tax tags (+20, -20) for this box.
+        tags_20 = self.env["account.account.tag"].search(
+            [
+                ("country_id", "=", self.env.ref("base.fr").id),
+                ("applicability", "=", "taxes"),
+                ("name", "in", ["+20", "-20"]),
+            ]
         )
-        return vat_account2type
+
+        if tags_20:
+            domain = speedy["base_domain"] + [
+                ("date", ">=", self.start_date),
+                ("date", "<=", self.end_date),
+                ("tax_tag_ids", "in", tags_20.ids),
+            ]
+            lines = speedy["aml_obj"].search(domain)
+
+            data = defaultdict(float)
+            for line in lines:
+                data[line.account_id] += line.balance
+
+            logs = []
+            for account, amount in data.items():
+                if not speedy["currency"].is_zero(amount):
+                    logs.append(
+                        {
+                            "account_id": account.id,
+                            "compute_type": "balance_tags",
+                            "amount": amount,
+                            "note": _("Computed from tags (+20/-20)"),
+                        }
+                    )
+
+            self._create_line(
+                speedy,
+                logs,
+                "deductible_vat_other",
+                negative_box="negative_deductible_vat",
+            )
+
 
     def _generate_operation_untaxed(self, speedy):
         """
