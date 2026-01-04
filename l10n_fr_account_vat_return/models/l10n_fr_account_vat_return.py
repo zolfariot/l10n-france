@@ -555,6 +555,7 @@ class L10nFrAccountVatReturn(models.Model):
                     )
                     % self.move_id.display_name
                 )
+            self.write({"move_id": None})
             self.move_id.unlink()
         if self.ca3_attachment_id:
             self.ca3_attachment_id.unlink()
