@@ -55,6 +55,12 @@
                         invisible="state == 'manual'"
                     />
                     <button
+                        name="%(l10n_fr_account_vat_return.action_l10n_fr_account_vat_return_deductible_detail)d"
+                        type="action"
+                        string="Deductible VAT Detail"
+                        invisible="state == 'manual'"
+                    />
+                    <button
                         name="back_to_manual"
                         type="object"
                         string="Back to Manual Lines"

@@ -11,7 +11,7 @@
     "author": "Akretion,Odoo Community Association (OCA)",
     "maintainers": ["alexis-via"],
     "website": "https://github.com/OCA/l10n-france",
-    "depends": ["l10n_fr_account_oca", "intrastat_base"],
+    "depends": ["l10n_fr_account_oca", "intrastat_base", "l10n_fr_siret", "report_xlsx"],
     "external_dependencies": {"python": ["pypdf>=3.1.0"]},
     "data": [
         "security/ir.model.access.csv",
@@ -21,6 +21,8 @@
         "wizards/l10n_fr_account_vat_return_reimbursement_view.xml",
         "wizards/l10n_fr_vat_draft_move_option_view.xml",
         "wizards/l10n_fr_vat_autoliq_manual_view.xml",
+        "wizards/l10n_fr_account_vat_return_deductible_detail_view.xml",
+        "report/l10n_fr_account_vat_return_deductible_detail_data.xml",
         "views/l10n_fr_account_vat_box.xml",
         "views/l10n_fr_account_vat_return.xml",
         "views/account_tax.xml",

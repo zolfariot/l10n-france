@@ -10,3 +10,4 @@ access_l10n_fr_vat_exigibility_update,Full access on l10n_fr_vat_exigibility_upd
 access_l10n_fr_vat_draft_move_option,Full access on l10n.fr.vat.draft.move.option wizard,model_l10n_fr_vat_draft_move_option,account.group_account_user,1,1,1,1
 access_l10n_fr_vat_autoliq_manual,Full access on l10n.fr.vat.autoliq.manual wizard,model_l10n_fr_vat_autoliq_manual,account.group_account_user,1,1,1,1
 access_l10n_fr_vat_autoliq_manual_line,Full access on l10n.fr.vat.autoliq.manual.line wizard,model_l10n_fr_vat_autoliq_manual_line,account.group_account_user,1,1,1,1
+access_l10n_fr_account_vat_return_deductible_detail,Full access on l10n.fr.account.vat.return.deductible.detail wizard,model_l10n_fr_account_vat_return_deductible_detail,account.group_account_user,1,1,1,1
