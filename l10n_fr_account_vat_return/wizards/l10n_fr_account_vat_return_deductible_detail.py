@@ -245,6 +245,16 @@ class L10nFrAccountVatReturnDeductibleDetail(models.TransientModel):
                         category = "product"
 
             payment_dates = sorted(entry["payment_dates"])
+            # For services not going through CABA (e.g. autoliquidation
+            # from foreign suppliers where tax_exigibility='on_invoice'),
+            # the payment date equals the invoice date since VAT is
+            # exigible at invoice time.
+            if category in ("service", "mixed") and not payment_dates:
+                invoice_date = (
+                    source_move.invoice_date or source_move.date
+                )
+                if invoice_date:
+                    payment_dates = [invoice_date]
             # Delivery date: for goods, use delivery_date or invoice_date
             delivery_date = False
             if category in ("product", "mixed"):
