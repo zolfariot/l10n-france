@@ -1653,12 +1653,19 @@ class L10nFrAccountVatReturn(models.Model):
     def _prepare_account_move(self, speedy):
         self.ensure_one()
         self._check_account_move_setup()
+        base_label = _("Declaration %s") % self.display_name
+        reimbursement_label = _("Declaration %s - Reimbursement request") % (
+            self.display_name
+        )
+        rounding_label = _("Declaration %s - Rounding") % self.display_name
         lvals_list = []
         total = 0.0
         account2amount = defaultdict(float)
+        account2label = {}
         for line in self.line_ids.filtered(lambda x: x.box_accounting_method):
             method = line.box_accounting_method
             sign = method == "credit" and 1 or -1
+            box_meaning = line.box_id.meaning_id
             if line.box_manual and line.value_manual_int:
                 account = line.manual_account_id.with_company(speedy["company_id"])
                 if not account:
@@ -1666,9 +1673,9 @@ class L10nFrAccountVatReturn(models.Model):
                         _("Account is missing on manual line '%s'.")
                         % line.box_id.display_name
                     )
-                account2amount[
-                    (account, json.dumps(line.manual_analytic_distribution))
-                ] += line.value_manual_int * sign
+                key = (account, json.dumps(line.manual_analytic_distribution))
+                account2amount[key] += line.value_manual_int * sign
+                account2label.setdefault(key, base_label)
             else:
                 for log in line.log_ids:
                     log_account = log.account_id.with_company(speedy["company_id"])
@@ -1684,6 +1691,12 @@ class L10nFrAccountVatReturn(models.Model):
                         amount = speedy["currency"].round(amount)
                         total += amount
                         compare = speedy["currency"].compare_amounts(amount, 0)
+                        # On the credit to carry forward (445670), the credit leg
+                        # is the counterpart of the reimbursement request
+                        if box_meaning == "end_total_credit" and compare > 0:
+                            lvals["name"] = reimbursement_label
+                        else:
+                            lvals["name"] = base_label
                         if compare > 0:
                             lvals["credit"] = amount
                             lvals_list.append(lvals)
@@ -1692,9 +1705,12 @@ class L10nFrAccountVatReturn(models.Model):
                             lvals_list.append(lvals)
                         logger.debug("VAT move account %s: %s", log_account.code, lvals)
                     else:
-                        account2amount[
-                            (log_account, json.dumps(log.analytic_distribution))
-                        ] += amount
+                        key = (log_account, json.dumps(log.analytic_distribution))
+                        account2amount[key] += amount
+                        if box_meaning == "vat_reimbursement":
+                            account2label[key] = reimbursement_label
+                        else:
+                            account2label.setdefault(key, base_label)
         for (account, analytic_distribution_str), amount in account2amount.items():
             analytic_distribution = json.loads(analytic_distribution_str)
             amount = speedy["currency"].round(amount)
@@ -1703,6 +1719,7 @@ class L10nFrAccountVatReturn(models.Model):
             lvals = {
                 "account_id": account.id,
                 "analytic_distribution": analytic_distribution,
+                "name": account2label[(account, analytic_distribution_str)],
             }
             if compare > 0:
                 lvals["credit"] = amount
@@ -1740,6 +1757,7 @@ class L10nFrAccountVatReturn(models.Model):
                     "debit": total,
                     "account_id": account_id,
                     "analytic_distribution": analytic_dist,
+                    "name": rounding_label,
                 }
             )
         elif total_compare < 0:
@@ -1750,6 +1768,7 @@ class L10nFrAccountVatReturn(models.Model):
                     "credit": -total,
                     "account_id": account_id,
                     "analytic_distribution": analytic_dist,
+                    "name": rounding_label,
                 }
             )
 
