@@ -1653,11 +1653,11 @@ class L10nFrAccountVatReturn(models.Model):
     def _prepare_account_move(self, speedy):
         self.ensure_one()
         self._check_account_move_setup()
-        base_label = _("Declaration %s") % self.display_name
-        reimbursement_label = _("Declaration %s - Reimbursement request") % (
-            self.display_name
-        )
-        rounding_label = _("Declaration %s - Rounding") % self.display_name
+        # The CA3 is a French fiscal document: the journal entry labels are
+        # always written in French, regardless of the user's language.
+        base_label = "Déclaration %s" % self.display_name
+        reimbursement_label = "%s - Demande de remboursement" % base_label
+        rounding_label = "%s - Arrondi" % base_label
         lvals_list = []
         total = 0.0
         account2amount = defaultdict(float)
