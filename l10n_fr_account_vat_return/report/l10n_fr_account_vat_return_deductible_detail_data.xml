@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record
+        id="action_report_deductible_vat_detail_xlsx"
+        model="ir.actions.report"
+    >
+        <field name="name">Detailed Deductible VAT Report (XLSX)</field>
+        <field name="model">l10n.fr.account.vat.return.deductible.detail</field>
+        <field name="report_type">xlsx</field>
+        <field
+            name="report_name"
+        >l10n_fr_account_vat_return.deductible_vat_detail_xlsx</field>
+        <field
+            name="report_file"
+        >l10n_fr_account_vat_return.deductible_vat_detail_xlsx</field>
+    </record>
+</odoo>

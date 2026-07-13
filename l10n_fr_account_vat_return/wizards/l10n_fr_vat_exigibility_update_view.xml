@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Copyright 2022 Akretion France (http://www.akretion.com/)
+  @author: Alexis de Lattre <alexis.delattre@akretion.com>
+  License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
+-->
+<odoo>
+    <!-- Deprecated wizard - kept for compatibility but shows error message -->
+    <record id="l10n_fr_vat_exigibility_update_form" model="ir.ui.view">
+        <field name="model">l10n.fr.vat.exigibility.update</field>
+        <field name="arch" type="xml">
+            <form>
+                <div class="alert alert-warning" role="alert">
+                    <p><strong>This wizard is deprecated.</strong></p>
+                    <p>VAT exigibility should now be configured directly on individual taxes using the native Odoo functionality:</p>
+                    <ol>
+                        <li>Go to Accounting > Configuration > Taxes</li>
+                        <li>Edit each tax individually</li>
+                        <li>Set the 'Tax Exigibility' field to 'Based on Invoice' or 'Based on Payment'</li>
+                    </ol>
+                </div>
+                <footer>
+                    <button special="cancel" string="Close" class="btn-primary" />
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="l10n_fr_vat_exigibility_update_action" model="ir.actions.act_window">
+        <field name="name">Update Company VAT Exigibility (Deprecated)</field>
+        <field name="res_model">l10n.fr.vat.exigibility.update</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>

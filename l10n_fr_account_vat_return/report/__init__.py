@@ -1,0 +1,1 @@
+from . import l10n_fr_account_vat_return_deductible_detail_xlsx
